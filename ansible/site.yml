@@ -1,0 +1,23 @@
+- name: Configure all hosts
+  hosts: all
+  become: yes
+  roles:
+    - common
+
+- name: Configure Sliver C2 server
+  hosts: sliver_c2
+  become: yes
+  roles:
+    - sliver_c2
+
+- name: Configure redirector
+  hosts: redirector
+  become: yes
+  roles:
+    - redirector
+
+- name: Configure attacker workstation
+  hosts: attacker
+  become: yes
+  roles:
+    - attacker

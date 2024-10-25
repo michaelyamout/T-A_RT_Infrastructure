@@ -1,0 +1,45 @@
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install common packages
+  apt:
+    name:
+      - curl
+      - jq
+      - unzip
+      - python3
+      - python3-pip
+      - git
+      - tmux
+      - vim
+    state: present
+
+- name: Set timezone to UTC
+  timezone:
+    name: UTC
+
+- name: Ensure .ssh directory exists
+  file:
+    path: /home/ubuntu/.ssh
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0700'
+
+- name: Copy SSH private key
+  copy:
+    src: "{{ playbook_dir }}/../terraform/id_rsa"
+    dest: /home/ubuntu/.ssh/id_rsa
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'
+
+- name: Copy SSH public key
+  copy:
+    src: "{{ playbook_dir }}/../terraform/id_rsa.pub"
+    dest: /home/ubuntu/.ssh/id_rsa.pub
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'

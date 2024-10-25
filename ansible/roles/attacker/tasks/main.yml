@@ -1,0 +1,99 @@
+- name: Install attack tools
+  apt:
+    name:
+      - nmap
+      - netcat
+      - tcpdump
+      - wireshark
+      - python3-pip
+    state: present
+
+- name: Download Sliver client
+  shell: |
+    curl -s https://api.github.com/repos/BishopFox/sliver/releases/latest | \
+    jq -r '.assets[] | select(.name == "sliver-client_linux") | .browser_download_url' | \
+    xargs -I {} wget -O /usr/local/bin/sliver-client {}
+  args:
+    creates: /usr/local/bin/sliver-client
+
+- name: Set Sliver client permissions
+  file:
+    path: /usr/local/bin/sliver-client
+    mode: '0755'
+
+- name: Create Sliver client directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+  with_items:
+    - /home/ubuntu/.sliver-client/configs
+    - /home/ubuntu/.sliver-client/downloads
+    - /home/ubuntu/tools
+
+- name: Wait for Sliver C2 server SSH
+  wait_for:
+    host: "{{ hostvars[groups['sliver_c2'][0]]['inventory_hostname'] }}"
+    port: 22
+    state: started
+    delay: 10
+    timeout: 300
+  delegate_to: localhost
+
+- name: Ensure SSH directory permissions
+  file:
+    path: /home/ubuntu/.ssh
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0700'
+
+- name: Copy SSH key permissions
+  file:
+    path: /home/ubuntu/.ssh/id_rsa
+    mode: '0600'
+    owner: ubuntu
+    group: ubuntu
+
+- name: Test SSH connection
+  command: "ssh -i /home/ubuntu/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@{{ hostvars[groups['sliver_c2'][0]]['inventory_hostname'] }} 'echo test'"
+  register: ssh_test
+  become: yes
+  become_user: ubuntu
+  retries: 3
+  delay: 10
+  until: ssh_test is not failed
+
+- name: Copy Sliver config from C2 server
+  shell: >
+    scp -v -i /home/ubuntu/.ssh/id_rsa -o StrictHostKeyChecking=no
+    ubuntu@{{ hostvars[groups['sliver_c2'][0]]['inventory_hostname'] }}:/home/ubuntu/red_team_operator*.cfg
+    /home/ubuntu/.sliver-client/configs/
+  args:
+    creates: /home/ubuntu/.sliver-client/configs/red_team_operator*.cfg
+  become: yes
+  become_user: ubuntu
+  register: scp_result
+  retries: 3
+  delay: 10
+  until: scp_result is not failed
+
+- name: Set Sliver config permissions
+  file:
+    path: /home/ubuntu/.sliver-client
+    owner: ubuntu
+    group: ubuntu
+    recurse: yes
+
+- name: Create convenience aliases
+  copy:
+    dest: /home/ubuntu/.bash_aliases
+    content: |
+      alias sc='sliver-client'
+      alias nmap-quick='nmap -sV -sC -T4'
+      alias tcpdump-quick='tcpdump -i any -w capture-$(date +%F-%H%M%S).pcap'
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'

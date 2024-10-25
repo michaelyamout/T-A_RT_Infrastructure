@@ -1,0 +1,80 @@
+- name: Create Sliver directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  with_items:
+    - /opt/sliver
+    - /var/log/sliver
+
+- name: Download Sliver server
+  shell: |
+    curl -s https://api.github.com/repos/BishopFox/sliver/releases/latest | \
+    jq -r '.assets[] | select(.name == "sliver-server_linux") | .browser_download_url' | \
+    xargs -I {} wget -O /usr/local/bin/sliver-server {}
+  args:
+    creates: /usr/local/bin/sliver-server
+
+- name: Set Sliver server permissions
+  file:
+    path: /usr/local/bin/sliver-server
+    mode: '0755'
+
+- name: Unpack Sliver assets
+  command: sliver-server unpack --force
+  args:
+    creates: /root/.sliver
+
+- name: Get private IP
+  shell: curl -s http://169.254.169.254/latest/meta-data/local-ipv4
+  register: private_ip
+
+- name: Generate Sliver operator config
+  shell: |
+    sliver-server operator --name red_team_operator --lhost {{ private_ip.stdout }} --save /home/ubuntu
+  args:
+    creates: /home/ubuntu/red_team_operator*.cfg
+  become: yes
+
+- name: Find operator config file
+  find:
+    paths: /home/ubuntu
+    patterns: "red_team_operator*.cfg"
+  register: operator_config
+
+- name: Fix operator config permissions
+  file:
+    path: "{{ item.path }}"
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'
+  with_items: "{{ operator_config.files }}"
+  become: yes
+
+- name: Create Sliver systemd service
+  copy:
+    dest: /etc/systemd/system/sliver-server.service
+    content: |
+      [Unit]
+      Description=Sliver C2 Server
+      After=network.target
+
+      [Service]
+      ExecStart=/usr/local/bin/sliver-server daemon
+      Restart=always
+      User=root
+      StandardOutput=append:/var/log/sliver/server.log
+      StandardError=append:/var/log/sliver/server.log
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: '0644'
+
+- name: Start and enable Sliver service
+  systemd:
+    name: sliver-server
+    state: started
+    enabled: yes
+    daemon_reload: yes
